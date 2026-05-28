@@ -9,6 +9,8 @@ interface RailyticsRepository {
     suspend fun startAnalysis(streamId: String): AnalysisSession?
     suspend fun stopAnalysis(streamId: String? = null): Boolean
     suspend fun getActiveSessions(): List<AnalysisSession>
+    suspend fun addStream(stream: Stream): Boolean
+    suspend fun updateStream(stream: Stream): Boolean
 }
 
 data class FrameResponse(

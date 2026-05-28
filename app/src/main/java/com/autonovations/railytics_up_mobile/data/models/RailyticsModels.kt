@@ -9,6 +9,15 @@ data class YoutubeMetadata(
     val viewCount: Long,
     val isLive: Boolean
 ) {
+    fun toJson(): JSONObject {
+        val json = JSONObject()
+        json.put("title", title)
+        json.put("uploader", uploader)
+        json.put("view_count", viewCount)
+        json.put("is_live", isLive)
+        return json
+    }
+
     companion object {
         fun fromJson(json: JSONObject): YoutubeMetadata {
             return YoutubeMetadata(
@@ -32,6 +41,27 @@ data class Stream(
     val createdAt: String,
     val updatedAt: String
 ) {
+    val youtubeVideoId: String? get() {
+        val pattern = "^.*(youtu.be/|v/|u/\\w/|embed/|watch\\?v=|\\&v=)([^#\\&\\?]*).*".toRegex()
+        val matchResult = pattern.find(url)
+        val id = matchResult?.groupValues?.get(2)
+        return if (id?.length == 11) id else null
+    }
+
+    fun toJson(): JSONObject {
+        val json = JSONObject()
+        json.put("id", id)
+        json.put("name", name)
+        json.put("url", url)
+        json.put("description", description)
+        json.put("active", active)
+        json.put("thumbnail", thumbnail ?: JSONObject.NULL)
+        json.put("youtube_metadata", youtubeMetadata?.toJson() ?: JSONObject.NULL)
+        json.put("created_at", createdAt)
+        json.put("updated_at", updatedAt)
+        return json
+    }
+
     companion object {
         fun fromJson(json: JSONObject): Stream {
             val thumb = if (json.isNull("thumbnail")) null else json.optString("thumbnail")

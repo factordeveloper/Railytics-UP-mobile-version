@@ -188,8 +188,8 @@ fun MainScreen(
             ) {
                 when (selectedTab) {
                     0 -> StreamSelectionScreen(
-                        streams = streams.map { it.name },
-                        streamObjects = streams,
+                        streams = streams.filter { it.active }.map { it.name },
+                        streamObjects = streams.filter { it.active },
                         activeStreamIds = activeSessions.map { it.streamId },
                         onStartAnalysis = { viewModel.startStream(it) },
                         onStopAnalysis = { viewModel.stopStream(it) },
@@ -216,7 +216,14 @@ fun MainScreen(
                         isOfflineMode = isOfflineMode,
                         onToggleOfflineMode = { viewModel.toggleOfflineMode(it) },
                         apiUrl = apiUrl,
-                        onUpdateApiUrl = { viewModel.updateApiUrl(it) }
+                        onUpdateApiUrl = { viewModel.updateApiUrl(it) },
+                        streams = streams,
+                        onAddStream = { name, url, desc, active ->
+                            viewModel.createNewStream(name, url, desc, active)
+                        },
+                        onToggleStreamActive = { id, active ->
+                            viewModel.toggleStreamActive(id, active)
+                        }
                     )
                 }
             }

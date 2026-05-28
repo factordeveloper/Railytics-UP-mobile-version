@@ -330,6 +330,57 @@ class RailyticsViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun createNewStream(name: String, url: String, description: String, active: Boolean) {
+        viewModelScope.launch {
+            val pattern = "^.*(youtu.be/|v/|u/\\w/|embed/|watch\\?v=|\\&v=)([^#\\&\\?]*).*".toRegex()
+            val matchResult = pattern.find(url)
+            val videoId = matchResult?.groupValues?.get(2)
+            
+            val title = if (videoId?.length == 11) "$name | LIVE RAILCAM" else "Custom YouTube Stream"
+            val ytMetadata = YoutubeMetadata(
+                title = title,
+                uploader = "Custom Uploader",
+                viewCount = 0L,
+                isLive = true
+            )
+            val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+            sdf.timeZone = TimeZone.getTimeZone("UTC")
+            val nowStr = sdf.format(Date())
+
+            val newStream = Stream(
+                id = UUID.randomUUID().toString(),
+                name = name,
+                url = url,
+                description = description,
+                active = active,
+                thumbnail = null,
+                youtubeMetadata = ytMetadata,
+                createdAt = nowStr,
+                updatedAt = nowStr
+            )
+            activeRepo.addStream(newStream)
+            _streams.value = activeRepo.getStreams()
+        }
+    }
+
+    fun toggleStreamActive(streamId: String, active: Boolean) {
+        viewModelScope.launch {
+            val currentStreams = activeRepo.getStreams()
+            val stream = currentStreams.find { it.id == streamId }
+            if (stream != null) {
+                val updatedStream = stream.copy(active = active)
+                activeRepo.updateStream(updatedStream)
+                
+                // If deactivated and was analyzing, stop it
+                if (!active) {
+                    stopStream(streamId)
+                }
+                
+                _streams.value = activeRepo.getStreams()
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         simulationJob?.cancel()

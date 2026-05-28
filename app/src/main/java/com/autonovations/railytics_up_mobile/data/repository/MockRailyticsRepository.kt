@@ -23,11 +23,30 @@ class MockRailyticsRepository(private val context: Context) : RailyticsRepositor
         loadData()
     }
 
+    private fun saveStreams() {
+        val sharedPrefs = context.getSharedPreferences("railytics_prefs", Context.MODE_PRIVATE)
+        val arr = JSONArray()
+        for (s in streams) {
+            arr.put(s.toJson())
+        }
+        sharedPrefs.edit().putString("streams_data", arr.toString()).apply()
+    }
+
     private fun loadData() {
         try {
             // Load streams
-            val streamsStr = context.assets.open("streams.json").bufferedReader().use { it.readText() }
+            val sharedPrefs = context.getSharedPreferences("railytics_prefs", Context.MODE_PRIVATE)
+            val savedStreams = sharedPrefs.getString("streams_data", null)
+            val streamsStr = if (savedStreams != null) {
+                savedStreams
+            } else {
+                val assetStr = context.assets.open("streams.json").bufferedReader().use { it.readText() }
+                sharedPrefs.edit().putString("streams_data", assetStr).apply()
+                assetStr
+            }
+
             val streamsArr = JSONArray(streamsStr)
+            streams.clear()
             for (i in 0 until streamsArr.length()) {
                 val obj = streamsArr.optJSONObject(i)
                 if (obj != null) {
@@ -168,5 +187,21 @@ class MockRailyticsRepository(private val context: Context) : RailyticsRepositor
 
     override suspend fun getActiveSessions(): List<AnalysisSession> {
         return activeSessions
+    }
+
+    override suspend fun addStream(stream: Stream): Boolean {
+        streams.add(stream)
+        saveStreams()
+        return true
+    }
+
+    override suspend fun updateStream(stream: Stream): Boolean {
+        val idx = streams.indexOfFirst { it.id == stream.id }
+        if (idx != -1) {
+            streams[idx] = stream
+            saveStreams()
+            return true
+        }
+        return false
     }
 }

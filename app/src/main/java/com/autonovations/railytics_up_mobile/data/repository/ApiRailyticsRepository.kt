@@ -218,4 +218,12 @@ class ApiRailyticsRepository(private val baseUrlProvider: () -> String) : Railyt
             emptyList()
         }
     }
+
+    override suspend fun addStream(stream: Stream): Boolean {
+        return true
+    }
+
+    override suspend fun updateStream(stream: Stream): Boolean {
+        return true
+    }
 }

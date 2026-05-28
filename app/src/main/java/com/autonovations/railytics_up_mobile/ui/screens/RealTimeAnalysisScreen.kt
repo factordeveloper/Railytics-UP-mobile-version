@@ -75,6 +75,7 @@ fun RealTimeAnalysisScreen(
         when (activeSubTab) {
             0 -> MultiStreamSubTab(
                 activeSessions = activeSessions,
+                streams = streams,
                 onStopAnalysis = { viewModel.stopStream(it) }
             )
             1 -> AnalyticsSubTab(
@@ -96,10 +97,12 @@ fun RealTimeAnalysisScreen(
     }
 }
 
+
 // ════════════ SUB-TAB 0: MULTI-STREAM VIEW ════════════
 @Composable
 fun MultiStreamSubTab(
     activeSessions: List<AnalysisSession>,
+    streams: List<Stream>,
     onStopAnalysis: (String) -> Unit
 ) {
     if (activeSessions.isEmpty()) {
@@ -140,14 +143,24 @@ fun MultiStreamSubTab(
         }
 
         items(activeSessions) { session ->
+            val stream = streams.find { it.id == session.streamId }
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF121212)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(1.dp, Color(0xFFFFC107).copy(alpha = 0.2f), RoundedCornerShape(12.dp))
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
+                Column {
+                    if (stream != null) {
+                        YoutubePlayer(
+                            videoUrl = stream.url,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f)
+                        )
+                    }
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -229,6 +242,7 @@ fun MultiStreamSubTab(
             }
         }
     }
+}
 }
 
 // ════════════ SUB-TAB 1: ANALYTICS ════════════
@@ -485,7 +499,9 @@ fun AnalyticsSubTab(
     }
 }
 
-@Composable
+
+
+    @Composable
 fun StatCard(
     label: String,
     value: String,

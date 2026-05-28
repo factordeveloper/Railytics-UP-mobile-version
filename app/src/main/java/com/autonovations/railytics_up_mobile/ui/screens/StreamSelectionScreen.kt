@@ -143,6 +143,8 @@ fun StreamCard(
     onWatchStream: () -> Unit
 ) {
     val hash = abs(stream.filenameHashCode())
+    var isWatchingInline by remember { mutableStateOf(false) }
+
     // Let's create a simulated frame to render on Canvas as a thumbnail
     val mockFrame = remember(stream.id) {
         Frame(
@@ -175,14 +177,23 @@ fun StreamCard(
             .border(1.dp, Color(0xFFFFC107).copy(alpha = 0.2f), RoundedCornerShape(12.dp))
     ) {
         Column {
-            // Simulated live video frame thumbnail
+            // Simulated live video frame thumbnail OR YoutubePlayer inline
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .clickable { onWatchStream() }
             ) {
-                TrainFrameCanvas(frame = mockFrame, modifier = Modifier.fillMaxSize())
+                if (isWatchingInline) {
+                    YoutubePlayer(videoUrl = stream.url, modifier = Modifier.fillMaxSize())
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable { isWatchingInline = true }
+                    ) {
+                        TrainFrameCanvas(frame = mockFrame, modifier = Modifier.fillMaxSize())
+                    }
+                }
 
                 // LIVE badge overlay
                 if (stream.youtubeMetadata?.isLive == true) {
@@ -265,12 +276,16 @@ fun StreamCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
-                        onClick = onWatchStream,
+                        onClick = { isWatchingInline = !isWatchingInline },
                         border = BorderStroke(1.dp, Color(0xFFFFC107)),
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFC107))
                     ) {
-                        Text("Watch Stream", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(
+                            text = if (isWatchingInline) "Stop Watching" else "Watch Stream",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp
+                        )
                     }
 
                     if (isAnalyzing) {
@@ -297,6 +312,92 @@ fun StreamCard(
 }
 
 @SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun YoutubePlayer(
+    videoUrl: String,
+    modifier: Modifier = Modifier
+) {
+    val videoId = remember(videoUrl) {
+        val pattern = "^.*(youtu.be/|v/|u/\\w/|embed/|watch\\?v=|\\&v=)([^#\\&\\?]*).*".toRegex()
+        val matchResult = pattern.find(videoUrl)
+        val id = matchResult?.groupValues?.get(2)
+        if (id?.length == 11) id else null
+    }
+
+    if (videoId != null) {
+        val htmlData = remember(videoId) {
+            """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                <style>
+                    body, html {
+                        margin: 0;
+                        padding: 0;
+                        width: 100%;
+                        height: 100%;
+                        background-color: black;
+                        overflow: hidden;
+                    }
+                    iframe {
+                        width: 100%;
+                        height: 100%;
+                        border: none;
+                    }
+                </style>
+            </head>
+            <body>
+                <iframe src="https://www.youtube.com/embed/$videoId?autoplay=1&mute=1&controls=1&rel=0&showinfo=0" 
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                        allowfullscreen></iframe>
+            </body>
+            </html>
+            """.trimIndent()
+        }
+
+        AndroidView(
+            factory = { context ->
+                WebView(context).apply {
+                    layoutParams = android.view.ViewGroup.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    setBackgroundColor(android.graphics.Color.BLACK)
+                    settings.apply {
+                        javaScriptEnabled = true
+                        domStorageEnabled = true
+                        mediaPlaybackRequiresUserGesture = false
+                        loadWithOverviewMode = true
+                        useWideViewPort = true
+                        userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                    }
+                    webChromeClient = WebChromeClient()
+                    webViewClient = WebViewClient()
+                    loadDataWithBaseURL("https://www.youtube.com", htmlData, "text/html", "UTF-8", null)
+                }
+            },
+            modifier = modifier
+        )
+    } else {
+        Box(
+            modifier = modifier.background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    tint = Color(0xFFEF4444),
+                    modifier = Modifier.size(48.dp),
+                    contentDescription = "Warning"
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Invalid YouTube Video URL", color = Color.White)
+            }
+        }
+    }
+}
+
 @Composable
 fun VideoPlayerDialog(
     stream: Stream,
@@ -345,43 +446,12 @@ fun VideoPlayerDialog(
                 Divider(color = Color.Gray.copy(alpha = 0.3f))
 
                 // YouTube WebView embed
-                val videoId = getYouTubeVideoId(stream.url)
-                if (videoId != null) {
-                    val embedUrl = "https://www.youtube-nocookie.com/embed/$videoId?autoplay=1&mute=0&controls=1"
-
-                    AndroidView(
-                        factory = { context ->
-                            WebView(context).apply {
-                                settings.javaScriptEnabled = true
-                                settings.mediaPlaybackRequiresUserGesture = false
-                                webChromeClient = WebChromeClient()
-                                webViewClient = WebViewClient()
-                                loadUrl(embedUrl)
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .weight(1f)
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                tint = Color(0xFFEF4444),
-                                modifier = Modifier.size(48.dp),
-                                contentDescription = TODO()
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Invalid YouTube Video URL", color = Color.White)
-                        }
-                    }
-                }
+                YoutubePlayer(
+                    videoUrl = stream.url,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                )
             }
         }
     }
@@ -389,11 +459,4 @@ fun VideoPlayerDialog(
 
 private fun Stream.filenameHashCode(): Int {
     return name.hashCode()
-}
-
-private fun getYouTubeVideoId(url: String): String? {
-    val pattern = "^.*(youtu.be/|v/|u/\\w/|embed/|watch\\?v=|\\&v=)([^#\\&\\?]*).*".toRegex()
-    val matchResult = pattern.find(url)
-    val id = matchResult?.groupValues?.get(2)
-    return if (id?.length == 11) id else null
 }
