@@ -1,9 +1,14 @@
 package com.autonovations.railytics_up_mobile.ui.screens
 
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.net.Uri
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,13 +19,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -311,54 +317,37 @@ fun StreamCard(
     }
 }
 
+
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun YoutubePlayer(
     videoUrl: String,
     modifier: Modifier = Modifier
 ) {
-    val videoId = remember(videoUrl) {
-        val pattern = "^.*(youtu.be/|v/|u/\\w/|embed/|watch\\?v=|\\&v=)([^#\\&\\?]*).*".toRegex()
-        val matchResult = pattern.find(videoUrl)
-        val id = matchResult?.groupValues?.get(2)
-        if (id?.length == 11) id else null
+    // Build the canonical watch URL so the WebView loads the full YouTube page
+    // (not an embed) — this bypasses Error 150 entirely.
+    val watchUrl = remember(videoUrl) {
+        val id = extractYouTubeVideoId(videoUrl)
+        if (id != null) {
+            // Prefer the live URL format for live streams; fallback to watch
+            if (videoUrl.contains("/live") || videoUrl.contains("live/")) {
+                "https://m.youtube.com/watch?v=$id&autoplay=1"
+            } else {
+                "https://m.youtube.com/watch?v=$id&autoplay=1"
+            }
+        } else {
+            // Fallback: use the URL as-is if we can't extract an ID
+            videoUrl
+        }
     }
 
-    if (videoId != null) {
-        val htmlData = remember(videoId) {
-            """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                <style>
-                    body, html {
-                        margin: 0;
-                        padding: 0;
-                        width: 100%;
-                        height: 100%;
-                        background-color: black;
-                        overflow: hidden;
-                    }
-                    iframe {
-                        width: 100%;
-                        height: 100%;
-                        border: none;
-                    }
-                </style>
-            </head>
-            <body>
-                <iframe src="https://www.youtube.com/embed/$videoId?autoplay=1&mute=1&controls=1&rel=0&showinfo=0" 
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                        allowfullscreen></iframe>
-            </body>
-            </html>
-            """.trimIndent()
-        }
+    var isLoading by remember { mutableStateOf(true) }
 
+    Box(modifier = modifier) {
         AndroidView(
-            factory = { context ->
-                WebView(context).apply {
+            factory = { ctx ->
+                WebView(ctx).apply {
                     layoutParams = android.view.ViewGroup.LayoutParams(
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -370,39 +359,123 @@ fun YoutubePlayer(
                         mediaPlaybackRequiresUserGesture = false
                         loadWithOverviewMode = true
                         useWideViewPort = true
-                        userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                        allowContentAccess = true
+                        setSupportMultipleWindows(false)
+                        // Mobile Chrome UA — loads the mobile YouTube site which is
+                        // lighter and focuses on the video player
+                        userAgentString =
+                            "Mozilla/5.0 (Linux; Android 13; Pixel 7) " +
+                            "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                            "Chrome/124.0.6367.82 Mobile Safari/537.36"
                     }
-                    webChromeClient = WebChromeClient()
-                    webViewClient = WebViewClient()
-                    loadDataWithBaseURL("https://www.youtube.com", htmlData, "text/html", "UTF-8", null)
+                    webChromeClient = object : WebChromeClient() {}
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            // Inject CSS to hide YouTube mobile UI chrome:
+                            // header, bottom nav, sidebar, ads — showing only the player
+                            val js = """
+                                (function() {
+                                    var style = document.createElement('style');
+                                    style.textContent = `
+                                        /* Hide top header / nav bar */
+                                        #masthead-container,
+                                        ytm-mobile-topbar-renderer,
+                                        .mobile-topbar-renderer,
+                                        header.mobile-topbar-renderer { display: none !important; }
+
+                                        /* Hide bottom navigation bar */
+                                        .pivot-bar-renderer,
+                                        ytm-pivot-bar-renderer,
+                                        [data-is-persistent='true'] { display: none !important; }
+
+                                        /* Remove padding that accounts for hidden bars */
+                                        ytm-app { padding-top: 0 !important; }
+
+                                        /* Hide ads / overlays */
+                                        .video-ads, .ytp-ad-module,
+                                        ytm-promoted-sparkles-web-renderer { display: none !important; }
+
+                                        /* Make body flush black */
+                                        body { background: #000 !important; margin: 0; }
+                                    `;
+                                    document.head.appendChild(style);
+
+                                    /* Scroll page so player is at top */
+                                    window.scrollTo(0, 0);
+                                })();
+                            """.trimIndent()
+                            view?.evaluateJavascript(js, null)
+                            isLoading = false
+                        }
+
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: android.webkit.WebResourceRequest?
+                        ): Boolean {
+                            val url = request?.url?.toString() ?: ""
+                            // Keep all YouTube navigation inside the WebView
+                            return !(url.contains("youtube.com") ||
+                                    url.contains("youtu.be") ||
+                                    url.contains("ytimg.com") ||
+                                    url.contains("googlevideo.com") ||
+                                    url.contains("googleapis.com") ||
+                                    url.startsWith("blob:") ||
+                                    url.startsWith("data:"))
+                        }
+                    }
+                    loadUrl(watchUrl)
                 }
             },
-            modifier = modifier
+            modifier = Modifier.fillMaxSize()
         )
-    } else {
-        Box(
-            modifier = modifier.background(Color.Black),
-            contentAlignment = Alignment.Center
+
+        // Loading overlay
+        AnimatedVisibility(
+            visible = isLoading,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    tint = Color(0xFFEF4444),
-                    modifier = Modifier.size(48.dp),
-                    contentDescription = "Warning"
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Invalid YouTube Video URL", color = Color.White)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0A0A0A)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        color = Color(0xFFFFB000),
+                        modifier = Modifier.size(40.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Cargando stream...",
+                        color = Color(0xFF90CAF9),
+                        fontSize = 13.sp
+                    )
+                }
             }
         }
     }
 }
+
+/** Extracts the 11-character video/stream ID from any YouTube URL format. */
+fun extractYouTubeVideoId(url: String): String? {
+    val pattern = "^.*(youtu\\.be/|v/|u/\\w/|embed/|watch\\?v=|\\&v=|live/)([^#\\&\\?]*).*".toRegex()
+    val matchResult = pattern.find(url)
+    val id = matchResult?.groupValues?.get(2)
+    return if (id?.length == 11) id else null
+}
+
+
 
 @Composable
 fun VideoPlayerDialog(
     stream: Stream,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -414,38 +487,72 @@ fun VideoPlayerDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.6f)
-                .padding(16.dp)
-                .border(1.dp, Color(0xFFFFC107).copy(alpha = 0.4f), RoundedCornerShape(12.dp)),
-            color = Color(0xFF1E1E1E),
-            shape = RoundedCornerShape(12.dp)
+                .fillMaxHeight(0.65f)
+                .padding(12.dp)
+                .border(1.dp, Color(0xFFFFC107).copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
+            color = Color(0xFF121212),
+            shape = RoundedCornerShape(16.dp)
         ) {
             Column {
-                // Header of dialog
+                // Dialog header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .background(
+                            Color(0xFF1A1A1A),
+                            RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                        )
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = stream.name,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(imageVector = Icons.Default.Close, tint = Color.White, contentDescription = "Close")
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stream.name,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (stream.youtubeMetadata?.isLive == true) {
+                            Text(
+                                text = "🔴 EN VIVO",
+                                color = Color(0xFFEF4444),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Open in YouTube app button
+                        IconButton(
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(stream.url)).apply {
+                                    setPackage("com.google.android.youtube")
+                                }
+                                try {
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(stream.url)))
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                tint = Color(0xFFFF0000),
+                                contentDescription = "Abrir en YouTube"
+                            )
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(imageVector = Icons.Default.Close, tint = Color.White, contentDescription = "Cerrar")
+                        }
                     }
                 }
 
-                Divider(color = Color.Gray.copy(alpha = 0.3f))
+                HorizontalDivider(color = Color(0xFFFFC107).copy(alpha = 0.2f))
 
-                // YouTube WebView embed
+                // YouTube player
                 YoutubePlayer(
                     videoUrl = stream.url,
                     modifier = Modifier
