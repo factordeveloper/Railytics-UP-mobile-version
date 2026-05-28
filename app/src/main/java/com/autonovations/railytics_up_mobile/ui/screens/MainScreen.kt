@@ -74,10 +74,10 @@ fun MainScreen(
                 Image(
                     painter = painterResource(id = R.drawable.usa_flag),
                     contentDescription = "USA Flag",
-                    contentScale = ContentScale.FillWidth,
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(60.dp)
+                        .height(150.dp)
                         .border(1.dp, Color(0xFFFFC107).copy(alpha = 0.2f))
                 )
 
@@ -151,12 +151,6 @@ fun MainScreen(
                                     .height(45.dp)
                                     .padding(end = 8.dp)
                             )
-                            Text(
-                                text = "RAILYTICS",
-                                fontWeight = FontWeight.Bold,
-                                color = Color.Black,
-                                fontSize = 16.sp
-                            )
                         }
                     },
                     navigationIcon = {
@@ -181,7 +175,7 @@ fun MainScreen(
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                         containerColor = Color(0xFFFFAD01) // Gold/Yellow brand header
                     ),
-                    modifier = Modifier.height(64.dp)
+                    modifier = Modifier.height(90.dp)
                 )
             },
             modifier = modifier
